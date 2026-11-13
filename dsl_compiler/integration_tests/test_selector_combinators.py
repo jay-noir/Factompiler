@@ -73,10 +73,10 @@ def test_native_selector_builtin(declaration, operation, expected):
     for key, value in expected.items():
         assert behavior[key] == value
     # A selector with input signals must be wired to the source network.
-    assert any(
-        selectors[0]["entity_number"] in wire[::2]
-        for wire in blueprint.get("wires", [])
-    )
+    connected = [
+        wire for wire in blueprint.get("wires", []) if selectors[0]["entity_number"] in wire[::2]
+    ]
+    assert connected
 
 
 def test_dynamic_index_signal_is_connected_and_configured():
