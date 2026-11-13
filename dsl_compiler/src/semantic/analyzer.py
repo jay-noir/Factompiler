@@ -50,10 +50,10 @@ from dsl_compiler.src.common.signal_registry import (
     SignalTypeRegistry,
     is_valid_factorio_signal,
 )
+from dsl_compiler.src.common.selector_builtins import SELECTOR_BUILTINS
 from dsl_compiler.src.common.source_location import (
     SourceLocation,
 )
-from dsl_compiler.src.common.selector_builtins import SELECTOR_BUILTINS
 
 from .symbol_table import SemanticError, Symbol, SymbolTable, SymbolType
 from .type_system import (
