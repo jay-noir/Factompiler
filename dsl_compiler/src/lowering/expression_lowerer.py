@@ -1350,14 +1350,18 @@ class ExpressionLowerer:
         which signal type to read from the bundle's wire.
         """
         bundle_ref = self.lower_expr(expr.bundle)
+        # Semantic analysis resolved literal names and compile-time signal.type
+        # accesses. Do not turn a runtime selector result into a static bundle.
+        signal_name = get_signal_type_name(self.semantic.get_expr_type(expr))
+        if signal_name is None:
+            self._error("Cannot resolve selected signal type", expr)
+            return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
 
         if isinstance(bundle_ref, BundleRef):
-            # Return a SignalRef pointing to the same source but with specific signal type
-            return SignalRef(expr.signal_type, bundle_ref.source_id, source_ast=expr)
+            # Selecting a named channel requires no additional combinator.
+            return SignalRef(signal_name, bundle_ref.source_id, source_ast=expr)
         elif isinstance(bundle_ref, SignalRef):
-            # If it's already a SignalRef (shouldn't happen for valid bundles),
-            # just change the signal type
-            return SignalRef(expr.signal_type, bundle_ref.source_id, source_ast=expr)
+            return SignalRef(signal_name, bundle_ref.source_id, source_ast=expr)
         else:
             self._error("Cannot select from non-bundle value", expr)
             return self.ir_builder.const(self.ir_builder.allocate_implicit_type(), 0, expr)
