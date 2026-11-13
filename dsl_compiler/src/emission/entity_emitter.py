@@ -408,10 +408,7 @@ class PlanEntityEmitter:
         elif operation == "rocket-capacity":
             entity.set_mode_rocket_capacity()
         elif operation == "quality-filter":
-            entity.set_mode_quality_filter(
-                props.get("quality"),
-                props.get("comparator", "="),
-            )
+            entity.set_mode_quality_filter(props.get("quality"), props.get("comparator", "="))
         elif operation == "quality-transfer":
             entity.set_mode_quality_transfer(
                 select_quality_from_signal=bool(props.get("select_quality_from_signal", False)),
