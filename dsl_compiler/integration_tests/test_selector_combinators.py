@@ -64,7 +64,9 @@ ITEMS = 'Bundle items = { ("iron-plate", 5), ("copper-plate", 10) };'
 )
 def test_native_selector_builtin(declaration, operation, expected):
     blueprint = compile_selector(ITEMS + "\n" + declaration)
-    selectors = [entity for entity in blueprint["entities"] if entity["name"] == "selector-combinator"]
+    selectors = [
+        entity for entity in blueprint["entities"] if entity["name"] == "selector-combinator"
+    ]
     assert len(selectors) == 1
     behavior = selectors[0]["control_behavior"]
     assert behavior["operation"] == operation
@@ -90,10 +92,12 @@ def test_dynamic_index_signal_is_connected_and_configured():
 
 def test_manual_selector_uses_minimal_select_control_behavior():
     blueprint = compile_selector(
-        'Entity select_1 = place("selector-combinator", 0, 0, {operation: "select"});'
+        'Entity select_1 = place("selector-combinator", 0, 0, {'
+        'operation: "select", direction: 4});'
     )
     selector = next(e for e in blueprint["entities"] if e["name"] == "selector-combinator")
     assert selector["control_behavior"]["operation"] == "select"
+    assert selector["direction"] == 4
 
 
 def test_manual_selector_count_mode_serializes_output_signal():
