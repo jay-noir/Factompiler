@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from dsl_compiler.src.ast.base import ASTNode
+from dsl_compiler.src.common.selector_builtins import SELECTOR_BUILTINS
 from dsl_compiler.src.ast.expressions import (
     BinaryOp,
     BundleAllExpr,
@@ -44,6 +45,7 @@ from dsl_compiler.src.ir.nodes import (
     IRArith,
     IRDecider,
     IREntityOutput,
+    IREntityPropWrite,
     IREntityPropRead,
 )
 from dsl_compiler.src.semantic.symbol_table import SymbolType
@@ -1476,7 +1478,108 @@ class ExpressionLowerer:
             return self.lower_place_call(expr)
         if expr.name == "memory":
             return self.lower_memory_call(expr)
+        if expr.name in SELECTOR_BUILTINS:
+            return self.lower_selector_call(expr)
         return self.lower_function_call_inline(expr)
+
+    def lower_selector_call(self, expr: CallExpr) -> SignalRef | BundleRef:
+        """Lower a selector builtin using the existing entity and wire IR.
+
+        Selector results are dynamic Bundles except for count_signals, whose
+        output is a single named signal. No artificial output-signal remapping
+        is needed: the native selector preserves the winning input signal type.
+        """
+        name = expr.name
+        source = self.lower_expr(expr.args[0])
+        if not isinstance(source, BundleRef):
+            self._error(f"{name}() requires a Bundle", expr.args[0])
+            return BundleRef(set(), "error", source_ast=expr)
+
+        props: dict[str, Any] = {}
+        if name in {"select_max", "select_min", "select_index"}:
+            props = {"operation": "select", "select_max": name != "select_min"}
+            if name == "select_index":
+                index = self.lower_expr(expr.args[1])
+                if isinstance(index, int):
+                    props["index_constant"] = index
+                elif isinstance(index, SignalRef):
+                    props["index_signal"] = index.signal_type
+                    # The index signal must reach the selector's input network.
+                    source = self.ir_builder.wire_merge([source, index], "bundle", expr)
+                else:
+                    self._error("select_index() index must be an integer or a Signal", expr)
+                if len(expr.args) >= 3:
+                    props["select_max"] = bool(self._selector_int(expr.args[2]))
+        elif name == "count_signals":
+            props = {
+                "operation": "count",
+                "count_signal": self._selector_string(expr.args[1])
+                if len(expr.args) >= 2
+                else "signal-C",
+            }
+        elif name == "random_input":
+            props = {
+                "operation": "random",
+                "random_update_interval": (
+                    self._selector_int(expr.args[1]) if len(expr.args) >= 2 else 0
+                ),
+            }
+        elif name == "stack_size":
+            props = {"operation": "stack-size"}
+        elif name == "rocket_capacity":
+            props = {"operation": "rocket-capacity"}
+        elif name == "quality_filter":
+            props = {
+                "operation": "quality-filter",
+                "quality": self._selector_string(expr.args[1]),
+                "comparator": (
+                    self._selector_string(expr.args[2]) if len(expr.args) >= 3 else "="
+                ),
+            }
+        elif name in {"quality_transfer", "quality_transfer_signal"}:
+            dynamic = name == "quality_transfer_signal"
+            props = {
+                "operation": "quality-transfer",
+                "select_quality_from_signal": dynamic,
+                "quality_destination_signal": (
+                    self._selector_string(expr.args[2])
+                    if len(expr.args) >= 3
+                    else "signal-each"
+                ),
+            }
+            if dynamic:
+                props["quality_source_signal"] = self._selector_string(expr.args[1])
+            else:
+                props["quality_source_static"] = self._selector_string(expr.args[1])
+
+        entity_id = self.ir_builder.next_id("selector")
+        # None means unconstrained position; the standard layout engine places it.
+        self.ir_builder.place_entity(
+            entity_id, "selector-combinator", None, None, props, expr
+        )
+        self.ir_builder.add_operation(IREntityPropWrite(entity_id, "input", source))
+        output_id = self.ir_builder.next_id("selector_output")
+        self.ir_builder.add_operation(IREntityOutput(output_id, entity_id, expr))
+        if name == "count_signals":
+            count_type = props["count_signal"]
+            self.parent.ensure_signal_registered(count_type)
+            return SignalRef(count_type, output_id, source_ast=expr)
+        return BundleRef(set(), output_id, source_ast=expr)
+
+    def _selector_int(self, expr: Expr) -> int:
+        value = ConstantFolder.extract_constant_int(
+            expr, self.diagnostics, symbol_resolver=self._resolve_constant_symbol
+        )
+        if value is None:
+            self._error("Selector configuration must be a compile-time integer", expr)
+            return 0
+        return value
+
+    def _selector_string(self, expr: Expr) -> str:
+        if not isinstance(expr, StringLiteral):
+            self._error("Selector configuration must be a string literal", expr)
+            return ""
+        return expr.value
 
     def lower_place_call(self, expr: CallExpr) -> SignalRef:
         _, ref = self._lower_place_core(expr)
