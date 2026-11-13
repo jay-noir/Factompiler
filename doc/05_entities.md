@@ -188,8 +188,10 @@ automatically place the combinator and connect the input Bundle:
 | `quality_transfer_signal(items, "signal-Q", "signal-each")` | Transfer quality read from a signal |
 
 Except for `count_signals`, functions return a **Bundle** because the selected
-signal name is determined at runtime. Project an output onto a fixed signal
-with `bundle["signal-name"]` when needed. The `index` argument accepts a
+signal name is determined at runtime. Read a known signal channel with
+`bundle["signal-name"]` or `bundle[recipe.type]` (where `recipe` is a known
+Signal); the channel reads zero when that signal was not selected. This also
+works after bundle arithmetic, filtering, or merging. The `index` argument accepts a
 compile-time integer or a runtime Signal; `descending` and `ticks` are
 compile-time integers (0/1 for descending).
 
@@ -197,6 +199,9 @@ compile-time integers (0/1 for descending).
 Bundle resources = { ("iron-plate", 100), ("copper-plate", 80) };
 Bundle highest = select_max(resources);
 Bundle third_lowest = select_index(resources, 2, 0);
+Signal iron_if_selected = highest["iron-plate"];
+Signal recipe = ("copper-plate", 1);
+Signal copper_if_selected = highest[recipe.type];
 Signal unique = count_signals(resources, "signal-C");
 ```
 
