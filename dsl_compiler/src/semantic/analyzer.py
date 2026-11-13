@@ -1269,7 +1269,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             if isinstance(arg, StringLiteral):
                 valid, error = is_valid_factorio_signal(arg.value)
                 if not valid:
-                    self.diagnostics.error(error, stage="semantic", node=arg)
+                    self.diagnostics.error(error or "Invalid signal", stage="semantic", node=arg)
 
     def _validate_place_call(self, node: CallExpr) -> None:
         """Validate place() builtin call."""
