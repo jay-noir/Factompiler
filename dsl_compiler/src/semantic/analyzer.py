@@ -53,6 +53,7 @@ from dsl_compiler.src.common.signal_registry import (
 from dsl_compiler.src.common.source_location import (
     SourceLocation,
 )
+from dsl_compiler.src.common.selector_builtins import SELECTOR_BUILTINS
 
 from .symbol_table import SemanticError, Symbol, SymbolTable, SymbolType
 from .type_system import (
@@ -1185,6 +1186,16 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             expr.metadata["resolved_signal_type"] = signal_type
             return SignalValue(signal_type=signal_type)
 
+        if expr.name in SELECTOR_BUILTINS:
+            if expr.name == "count_signals":
+                signal_name = (
+                    expr.args[1].value
+                    if len(expr.args) >= 2 and isinstance(expr.args[1], StringLiteral)
+                    else "signal-C"
+                )
+                return SignalValue(signal_type=self.make_signal_type_info(signal_name))
+            return DynamicBundleValue()
+
         return None
 
     def _resolve_memory_signal_type(self, expr: CallExpr) -> SignalTypeInfo:
@@ -1209,9 +1220,56 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             self._validate_place_call(node)
         elif node.name == "memory":
             self._validate_memory_call(node)
+        elif node.name in SELECTOR_BUILTINS:
+            self._validate_selector_call(node)
         else:
             for arg in node.args:
                 self.get_expr_type(arg)
+
+    def _validate_selector_call(self, node: CallExpr) -> None:
+        """Validate selector builtins before lowering them to native combinators."""
+        minimum, maximum = SELECTOR_BUILTINS[node.name]
+        if not minimum <= len(node.args) <= maximum:
+            self.diagnostics.error(
+                f"{node.name}() expects {minimum} to {maximum} arguments",
+                stage="semantic",
+                node=node,
+            )
+            return
+
+        if not isinstance(self.get_expr_type(node.args[0]), BundleValue):
+            self.diagnostics.error(
+                f"{node.name}() requires a Bundle as its first argument",
+                stage="semantic",
+                node=node.args[0],
+            )
+
+        for index, arg in enumerate(node.args[1:], 1):
+            if node.name == "select_index" and index == 1:
+                valid = isinstance(self.get_expr_type(arg), (IntValue, SignalValue))
+                expected = "an integer or a Signal index"
+            elif (node.name == "select_index" and index == 2) or (
+                node.name == "random_input" and index == 1
+            ):
+                valid = isinstance(self.get_expr_type(arg), IntValue)
+                expected = "a compile-time integer"
+            else:
+                valid = isinstance(arg, StringLiteral)
+                expected = "a string literal"
+
+            if not valid:
+                self.diagnostics.error(
+                    f"{node.name}() argument {index + 1} must be {expected}",
+                    stage="semantic",
+                    node=arg,
+                )
+
+        if node.name == "count_signals" and len(node.args) == 2:
+            arg = node.args[1]
+            if isinstance(arg, StringLiteral):
+                valid, error = is_valid_factorio_signal(arg.value)
+                if not valid:
+                    self.diagnostics.error(error, stage="semantic", node=arg)
 
     def _validate_place_call(self, node: CallExpr) -> None:
         """Validate place() builtin call."""
@@ -1576,7 +1634,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
     def visit_CallExpr(self, node: CallExpr) -> None:
         """Analyze function call expressions."""
-        builtin_names = {"place", "input", "memory"}
+        builtin_names = {"place", "input", "memory"} | SELECTOR_BUILTINS.keys()
 
         func_symbol = self.current_scope.lookup(node.name)
         if func_symbol is None:
