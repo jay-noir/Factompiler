@@ -380,14 +380,27 @@ class PlanEntityEmitter:
         Select mode without other fields emits the minimal selector behavior.
         """
         operation = props.get("operation", "select")
+
+        # Runtime-index signals can be compiler-allocated virtual channels.
+        # Resolve those to their final Factorio names after layout.
+        def signal_name(key: str) -> str | None:
+            name = props.get(key)
+            mapping = self.signal_type_map.get(name)
+            if isinstance(mapping, dict):
+                return mapping.get("name", name)
+            return mapping if isinstance(mapping, str) else name
+
+        if "direction" in props:
+            entity.direction = props["direction"]
+
         if operation == "select":
             entity.set_mode_select(
                 select_max=bool(props.get("select_max", True)),
                 index_constant=props.get("index_constant", 0),
-                index_signal=props.get("index_signal"),
+                index_signal=signal_name("index_signal"),
             )
         elif operation == "count":
-            entity.set_mode_count(props.get("count_signal"))
+            entity.set_mode_count(signal_name("count_signal"))
         elif operation == "random":
             entity.set_mode_random(props.get("random_update_interval", 0))
         elif operation == "stack-size":
@@ -403,8 +416,8 @@ class PlanEntityEmitter:
             entity.set_mode_quality_transfer(
                 select_quality_from_signal=bool(props.get("select_quality_from_signal", False)),
                 source_static=props.get("quality_source_static", "normal"),
-                source_signal=props.get("quality_source_signal"),
-                destination_signal=props.get("quality_destination_signal", "signal-each"),
+                source_signal=signal_name("quality_source_signal"),
+                destination_signal=signal_name("quality_destination_signal") or "signal-each",
             )
         else:
             raise ValueError(f"Unsupported selector operation: {operation}")
