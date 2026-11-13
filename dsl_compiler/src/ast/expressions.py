@@ -201,14 +201,15 @@ class BundleLiteral(Expr):
 class BundleSelectExpr(Expr):
     """Bundle element selection: bundle["signal-type"]
 
-    Extracts a single signal from a bundle by its signal type.
+    Extracts a single signal from a bundle by its known signal type.
+    The type may be a literal name or a compile-time signal.type access.
     Returns a Signal that can be used in any expression.
     """
 
     def __init__(
         self,
         bundle: Expr,
-        signal_type: str,
+        signal_type: str | SignalTypeAccess,
         line: int = 0,
         column: int = 0,
         raw_text: str | None = None,

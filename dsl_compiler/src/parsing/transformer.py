@@ -777,11 +777,11 @@ class DSLTransformer(Transformer):
         return self._unwrap_tree(items[0])
 
     def bundle_select_chain(self, items) -> Expr:
-        """bundle_select_chain: atom ( '[' STRING ']' )*
+        """bundle_select_chain: atom ( '[' type_literal ']' )*
 
-        Handles chained subscript operations like: entity.output["signal-A"]
-        items[0] is the base expression (atom)
-        items[1:] are STRING tokens for each subscript operation
+        Handles entity.output["signal-A"] and selected[recipe.type].
+        The type_literal transformer resolves quoted strings and retains
+        SignalTypeAccess nodes for semantic validation.
         """
         base = self._unwrap_tree(items[0])
 
@@ -811,16 +811,10 @@ class DSLTransformer(Transformer):
             current_expr = base  # type: ignore
 
         # Apply each subscript operation left-to-right
-        for signal_type_token in items[1:]:
-            if isinstance(signal_type_token, Token):
-                signal_type = signal_type_token.value[1:-1]  # Remove quotes
-            else:
-                signal_type = str(signal_type_token)[1:-1]
-
+        for signal_type in items[1:]:
             select_expr = BundleSelectExpr(bundle=current_expr, signal_type=signal_type)
-            # Set position from the signal type token if available
-            if hasattr(signal_type_token, "line"):
-                self._set_position(select_expr, signal_type_token)
+            if hasattr(signal_type, "line"):
+                self._set_position(select_expr, signal_type)
             current_expr = select_expr
 
         return current_expr

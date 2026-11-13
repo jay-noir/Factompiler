@@ -4,35 +4,23 @@ This document outlines features that are planned but not yet implemented in Fact
 
 ---
 
-## Selector Combinator Support
+## Selector Combinators (Implemented)
 
-The **selector combinator** was introduced in Factorio 2.0 and provides advanced signal filtering capabilities that Facto does not currently support. This combinator can:
-
-- **Select input by value**: Sort signals ascending/descending and output the nth signal (e.g., highest, lowest, or by index)
-- **Count inputs**: Output the count of unique input signals
-- **Random input**: Pass through a random input signal at configurable intervals
-- **Stack size**: Output the stack sizes of input items
-- **Rocket capacity** (Space Age): Output rocket capacity of input signals
-- **Quality filter** (Space Age): Filter signals by quality grade
-- **Quality transfer** (Space Age): Apply quality grades to signals
-
-### Potential Facto Syntax
-
-Future versions may support selector combinators with syntax like:
+Factorio 2.0 selector combinators are supported with native Facto functions
+and explicitly placed entities. See [Entity documentation](05_entities.md#selector-combinators)
+for all seven modes and their configuration.
 
 ```facto
-# Select the maximum value signal
-Signal highest = select_max(bundle);
-
-# Select by index (0 = first after sorting)
-Signal third_highest = select_index(bundle, 2, descending=true);
-
-# Count unique signals
-Signal count = count_signals(bundle);
-
-# Get stack sizes
-Bundle stacks = stack_size(items);
+Bundle resources = { ("iron-plate", 100), ("copper-plate", 80) };
+Bundle highest = select_max(resources);
+Bundle third_lowest = select_index(resources, 2, 0);
+Signal count = count_signals(resources, "signal-C");
+Bundle stacks = stack_size(resources);
 ```
+
+Selector functions emit native `selector-combinator` entities with circuit
+inputs and outputs, not simulated arithmetic or decider networks. Selector
+outputs whose signal type depends on runtime input are Bundles.
 
 ---
 

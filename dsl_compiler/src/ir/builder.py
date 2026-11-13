@@ -319,8 +319,8 @@ class IRBuilder:
         self,
         entity_id: str,
         prototype: str,
-        x: int | ValueRef,
-        y: int | ValueRef,
+        x: int | ValueRef | None,
+        y: int | ValueRef | None,
         properties: dict[str, Any] | None = None,
         source_ast: ASTNode | None = None,
     ) -> None:

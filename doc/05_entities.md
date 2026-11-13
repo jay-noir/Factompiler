@@ -169,6 +169,85 @@ counter.input = items;           # Wire chest contents to selector
 Signal count = counter.output["signal-C"];  # Read the count
 ```
 
+### Selector Combinators
+
+Facto emits native Factorio 2.0 selector combinators. These built-in functions
+automatically place the combinator and connect the input Bundle:
+
+| Function | Factorio operation |
+| --- | --- |
+| `select_max(items)` | Select highest-valued input (index 0) |
+| `select_min(items)` | Select lowest-valued input (index 0) |
+| `select_index(items, index, descending)` | Select at a zero-based index; descending defaults to 1 |
+| `count_signals(items, "signal-C")` | Count unique input signals into an output Signal; defaults to signal-C |
+| `random_input(items, ticks)` | Random input; ticks defaults to 0 |
+| `stack_size(items)` | Output input item stack sizes |
+| `rocket_capacity(items)` | Output rocket capacities (Space Age) |
+| `quality_filter(items, "rare", ">=")` | Filter signals by quality (Space Age); comparator defaults to = |
+| `quality_transfer(items, "rare", "signal-each")` | Transfer static quality; destination defaults to signal-each |
+| `quality_transfer_signal(items, "signal-Q", "signal-each")` | Transfer quality read from a signal |
+
+Except for `count_signals`, functions return a **Bundle** because the selected
+signal name is determined at runtime. Read a known signal channel with
+`bundle["signal-name"]` or `bundle[recipe.type]` (where `recipe` is a known
+Signal); the channel reads zero when that signal was not selected. This also
+works after bundle arithmetic, filtering, or merging. The `index` argument accepts a
+compile-time integer or a runtime Signal; `descending` and `ticks` are
+compile-time integers (0/1 for descending).
+
+```facto
+Bundle resources = { ("iron-plate", 100), ("copper-plate", 80) };
+Bundle highest = select_max(resources);
+Bundle third_lowest = select_index(resources, 2, 0);
+Signal iron_if_selected = highest["iron-plate"];
+Signal recipe = ("copper-plate", 1);
+Signal copper_if_selected = highest[recipe.type];
+Signal unique = count_signals(resources, "signal-C");
+```
+
+You can also place selectors explicitly and configure all seven operation
+modes using Draftsman's property names:
+
+```facto
+Entity nth = place("selector-combinator", 0, 0, {
+    operation: "select",
+    select_max: 1,
+    index_constant: 2
+});
+nth.input = resources;
+Bundle nth_output = nth.output;
+
+Entity randomizer = place("selector-combinator", 2, 0, {
+    operation: "random",
+    random_update_interval: 60
+});
+Entity counter = place("selector-combinator", 4, 0, {
+    operation: "count",
+    count_signal: "signal-C"
+});
+Entity stacks = place("selector-combinator", 6, 0, {operation: "stack-size"});
+Entity rockets = place("selector-combinator", 8, 0, {operation: "rocket-capacity"});
+Entity filter = place("selector-combinator", 10, 0, {
+    operation: "quality-filter",
+    quality: "rare",
+    comparator: ">="
+});
+Entity transfer = place("selector-combinator", 12, 0, {
+    operation: "quality-transfer",
+    select_quality_from_signal: 0,
+    quality_source_static: "rare",
+    quality_destination_signal: "signal-each"
+});
+```
+
+For select mode use `index_signal: "signal-I"` instead of `index_constant`
+to select a runtime index. Quality-transfer-from-signal additionally accepts
+`quality_source_signal`; quality filtering accepts a Factorio quality name
+and comparator. Explicit entities need their `.input` assigned to a Bundle
+to wire the input connector.
+
+---
+
 ### Balanced Loader Example
 
 ```facto

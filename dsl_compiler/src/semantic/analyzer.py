@@ -50,6 +50,7 @@ from dsl_compiler.src.common.signal_registry import (
     SignalTypeRegistry,
     is_valid_factorio_signal,
 )
+from dsl_compiler.src.common.selector_builtins import SELECTOR_BUILTINS
 from dsl_compiler.src.common.source_location import (
     SourceLocation,
 )
@@ -768,11 +769,20 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             # Bundle OP Bundle: element-wise operation using each-each
             if isinstance(right_type, BundleValue):
                 combined_types = left_type.signal_types | right_type.signal_types
-                return BundleValue(signal_types=combined_types)
+                bundle_class = (
+                    DynamicBundleValue
+                    if isinstance(left_type, DynamicBundleValue)
+                    or isinstance(right_type, DynamicBundleValue)
+                    else BundleValue
+                )
+                return bundle_class(signal_types=combined_types)
 
             # Bundle OP scalar: result is a Bundle with same signal types
             if isinstance(right_type, (SignalValue, IntValue)):
-                return BundleValue(signal_types=left_type.signal_types.copy())
+                bundle_class = (
+                    DynamicBundleValue if isinstance(left_type, DynamicBundleValue) else BundleValue
+                )
+                return bundle_class(signal_types=left_type.signal_types.copy())
 
             self.diagnostics.error(
                 f"Bundle operations require Signal or int operand on right side, got {type(right_type).__name__}",
@@ -938,7 +948,12 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         self.get_expr_type(expr.output_value)
 
         # Result is always a bundle - either copy or constant output per matching signal
-        return BundleValue(signal_types=source_bundle_type.signal_types.copy())
+        bundle_class = (
+            DynamicBundleValue
+            if isinstance(source_bundle_type, DynamicBundleValue)
+            else BundleValue
+        )
+        return bundle_class(signal_types=source_bundle_type.signal_types.copy())
 
     def _is_comparison_expr(self, expr: Expr) -> bool:
         """Check if expression is a valid decider condition.
@@ -1185,6 +1200,16 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             expr.metadata["resolved_signal_type"] = signal_type
             return SignalValue(signal_type=signal_type)
 
+        if expr.name in SELECTOR_BUILTINS:
+            if expr.name == "count_signals":
+                signal_name = (
+                    expr.args[1].value
+                    if len(expr.args) >= 2 and isinstance(expr.args[1], StringLiteral)
+                    else "signal-C"
+                )
+                return SignalValue(signal_type=self.make_signal_type_info(signal_name))
+            return DynamicBundleValue()
+
         return None
 
     def _resolve_memory_signal_type(self, expr: CallExpr) -> SignalTypeInfo:
@@ -1209,9 +1234,56 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             self._validate_place_call(node)
         elif node.name == "memory":
             self._validate_memory_call(node)
+        elif node.name in SELECTOR_BUILTINS:
+            self._validate_selector_call(node)
         else:
             for arg in node.args:
                 self.get_expr_type(arg)
+
+    def _validate_selector_call(self, node: CallExpr) -> None:
+        """Validate selector builtins before lowering them to native combinators."""
+        minimum, maximum = SELECTOR_BUILTINS[node.name]
+        if not minimum <= len(node.args) <= maximum:
+            self.diagnostics.error(
+                f"{node.name}() expects {minimum} to {maximum} arguments",
+                stage="semantic",
+                node=node,
+            )
+            return
+
+        if not isinstance(self.get_expr_type(node.args[0]), BundleValue):
+            self.diagnostics.error(
+                f"{node.name}() requires a Bundle as its first argument",
+                stage="semantic",
+                node=node.args[0],
+            )
+
+        for index, arg in enumerate(node.args[1:], 1):
+            if node.name == "select_index" and index == 1:
+                valid = isinstance(self.get_expr_type(arg), (IntValue, SignalValue))
+                expected = "an integer or a Signal index"
+            elif (node.name == "select_index" and index == 2) or (
+                node.name == "random_input" and index == 1
+            ):
+                valid = isinstance(self.get_expr_type(arg), IntValue)
+                expected = "a compile-time integer"
+            else:
+                valid = isinstance(arg, StringLiteral)
+                expected = "a string literal"
+
+            if not valid:
+                self.diagnostics.error(
+                    f"{node.name}() argument {index + 1} must be {expected}",
+                    stage="semantic",
+                    node=arg,
+                )
+
+        if node.name == "count_signals" and len(node.args) == 2:
+            arg = node.args[1]
+            if isinstance(arg, StringLiteral):
+                valid, error = is_valid_factorio_signal(arg.value)
+                if not valid:
+                    self.diagnostics.error(error or "Invalid signal", stage="semantic", node=arg)
 
     def _validate_place_call(self, node: CallExpr) -> None:
         """Validate place() builtin call."""
@@ -1576,7 +1648,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
 
     def visit_CallExpr(self, node: CallExpr) -> None:
         """Analyze function call expressions."""
-        builtin_names = {"place", "input", "memory"}
+        builtin_names = {"place", "input", "memory"} | SELECTOR_BUILTINS.keys()
 
         func_symbol = self.current_scope.lookup(node.name)
         if func_symbol is None:
@@ -1650,6 +1722,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         Elements can be signal literals, signal variables, or other bundles.
         """
         signal_types: set[str] = set()
+        is_dynamic = False
         seen_signals: dict[str, Expr] = {}  # Track where each signal was first seen
 
         for element in expr.elements:
@@ -1669,7 +1742,8 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                         signal_types.add(signal_name)
 
             elif isinstance(element_type, BundleValue):
-                # Flatten nested bundle
+                # Flatten nested bundle, preserving runtime-determined members.
+                is_dynamic |= isinstance(element_type, DynamicBundleValue)
                 for nested_signal in element_type.signal_types:
                     if nested_signal in seen_signals:
                         self.diagnostics.error(
@@ -1697,7 +1771,8 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                     node=element,
                 )
 
-        return BundleValue(signal_types=signal_types)
+        bundle_class = DynamicBundleValue if is_dynamic else BundleValue
+        return bundle_class(signal_types=signal_types)
 
     def _infer_bundle_select_type(self, expr: BundleSelectExpr) -> SignalValue:
         """Infer type for bundle selection bundle['signal-type'].
@@ -1714,25 +1789,25 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             )
             return SignalValue(signal_type=self.allocate_implicit_type())
 
-        # For dynamic bundles (e.g., entity.output), we can't validate signal types
-        # at compile time - they're determined at runtime
-        if isinstance(bundle_type, DynamicBundleValue):
-            signal_type_info = self.make_signal_type_info(expr.signal_type)
-            return SignalValue(signal_type=signal_type_info)
+        signal_name = self.resolve_signal_type_access(expr.signal_type, expr)
+        if signal_name is None:
+            return SignalValue(signal_type=self.allocate_implicit_type())
 
-        if expr.signal_type not in bundle_type.signal_types:
+        # Dynamic Bundles can contain any signal at runtime; static Bundles
+        # retain strict membership validation.
+        if not isinstance(bundle_type, DynamicBundleValue) and (
+            signal_name not in bundle_type.signal_types
+        ):
             available = ", ".join(sorted(bundle_type.signal_types)) or "(empty bundle)"
             self.diagnostics.error(
-                f"Signal type '{expr.signal_type}' not found in bundle. "
+                f"Signal type '{signal_name}' not found in bundle. "
                 f"Available types: {available}",
                 stage="semantic",
                 node=expr,
             )
             return SignalValue(signal_type=self.allocate_implicit_type())
 
-        # Valid selection - return SignalValue with the selected type
-        signal_type_info = self.make_signal_type_info(expr.signal_type)
-        return SignalValue(signal_type=signal_type_info)
+        return SignalValue(signal_type=self.make_signal_type_info(signal_name))
 
     def _infer_bundle_any_type(self, expr: BundleAnyExpr) -> SignalValue:
         """Infer type for any(bundle) expression.
