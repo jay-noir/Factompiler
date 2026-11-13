@@ -428,8 +428,8 @@ class IRPlaceEntity(IREffect):
         self,
         entity_id: str,
         prototype: str,
-        x: int | ValueRef,
-        y: int | ValueRef,
+        x: int | ValueRef | None,
+        y: int | ValueRef | None,
         properties: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(f"place_{entity_id}")
