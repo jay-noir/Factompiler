@@ -430,6 +430,9 @@ class PlanEntityEmitter:
     ) -> None:
         """Apply property writes to entity (e.g., entity.enable = signal)."""
         for prop_name, prop_data in property_writes.items():
+            if prop_name == "input":
+                # The layout planner already wired this circuit input.
+                continue
             if prop_name == "enable":
                 prop_type = prop_data.get("type")
 
