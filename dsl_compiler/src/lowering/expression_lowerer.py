@@ -1495,6 +1495,7 @@ class ExpressionLowerer:
             self._error(f"{name}() requires a Bundle", expr.args[0])
             return BundleRef(set(), "error", source_ast=expr)
 
+        selector_input: ValueRef = source
         props: dict[str, Any] = {}
         if name in {"select_max", "select_min", "select_index"}:
             props = {"operation": "select", "select_max": name != "select_min"}
@@ -1505,7 +1506,7 @@ class ExpressionLowerer:
                 elif isinstance(index, SignalRef):
                     props["index_signal"] = index.signal_type
                     # The index signal must reach the selector's input network.
-                    source = self.ir_builder.wire_merge([source, index], "bundle", expr)
+                    selector_input = self.ir_builder.wire_merge([source, index], "bundle", expr)
                 else:
                     self._error("select_index() index must be an integer or a Signal", expr)
                 if len(expr.args) >= 3:
@@ -1555,7 +1556,7 @@ class ExpressionLowerer:
         entity_id = self.ir_builder.next_id("selector")
         # None means unconstrained position; the standard layout engine places it.
         self.ir_builder.place_entity(entity_id, "selector-combinator", None, None, props, expr)
-        self.ir_builder.add_operation(IREntityPropWrite(entity_id, "input", source))
+        self.ir_builder.add_operation(IREntityPropWrite(entity_id, "input", selector_input))
         output_id = self.ir_builder.next_id("selector_output")
         self.ir_builder.add_operation(IREntityOutput(output_id, entity_id, expr))
         if name == "count_signals":
