@@ -160,8 +160,9 @@ unary: UNARY_OP unary
 // primary expressions (constructors, calls, memory ops, property access, bundle operations)
 primary: postfix_expr
 
-// Postfix expressions allow chaining: entity.output["signal-A"]
-postfix_expr: atom ( "[" STRING "]" )*       -> bundle_select_chain
+// Postfix expressions allow fixed signal names or compile-time signal types.
+// Examples: entity.output["signal-A"], selected[recipe.type]
+postfix_expr: atom ( "[" type_literal "]" )* -> bundle_select_chain
 
 atom: literal
     | signal_literal                       // New signal literal syntax
