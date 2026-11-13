@@ -9,6 +9,7 @@ from draftsman.entity import (  # type: ignore[import-not-found]
     ArithmeticCombinator,
     ConstantCombinator,
     DeciderCombinator,
+    SelectorCombinator,
     new_entity,  # type: ignore[import-not-found]
 )
 from draftsman.signatures import CircuitNetworkSelection  # type: ignore[import-not-found]
@@ -155,6 +156,8 @@ class PlanEntityEmitter:
                 self._configure_arithmetic(entity, placement.properties)
             elif placement.entity_type == "constant-combinator":
                 self._configure_constant(entity, placement.properties)
+            elif placement.entity_type == "selector-combinator":
+                self._configure_selector(entity, placement.properties)
             else:
                 for key, value in placement.properties.items():
                     if key in {"entity_obj", "footprint", "property_writes"}:
@@ -370,6 +373,41 @@ class PlanEntityEmitter:
         if signal_name:
             section = entity.add_section()
             section.set_signal(0, signal_name, value)
+
+    def _configure_selector(self, entity: SelectorCombinator, props: dict[str, Any]) -> None:
+        """Configure all Factorio 2.0 selector modes through Draftsman's typed API.
+
+        Select mode without other fields emits the minimal selector behavior.
+        """
+        operation = props.get("operation", "select")
+        if operation == "select":
+            entity.set_mode_select(
+                select_max=bool(props.get("select_max", True)),
+                index_constant=props.get("index_constant", 0),
+                index_signal=props.get("index_signal"),
+            )
+        elif operation == "count":
+            entity.set_mode_count(props.get("count_signal"))
+        elif operation == "random":
+            entity.set_mode_random(props.get("random_update_interval", 0))
+        elif operation == "stack-size":
+            entity.set_mode_stack_size()
+        elif operation == "rocket-capacity":
+            entity.set_mode_rocket_capacity()
+        elif operation == "quality-filter":
+            entity.set_mode_quality_filter(
+                props.get("quality"),
+                props.get("comparator", "="),
+            )
+        elif operation == "quality-transfer":
+            entity.set_mode_quality_transfer(
+                select_quality_from_signal=bool(props.get("select_quality_from_signal", False)),
+                source_static=props.get("quality_source_static", "normal"),
+                source_signal=props.get("quality_source_signal"),
+                destination_signal=props.get("quality_destination_signal", "signal-each"),
+            )
+        else:
+            raise ValueError(f"Unsupported selector operation: {operation}")
 
     def _apply_property_writes(
         self,
