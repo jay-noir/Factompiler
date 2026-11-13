@@ -108,3 +108,37 @@ def test_manual_selector_count_mode_serializes_output_signal():
     selector = next(e for e in blueprint["entities"] if e["name"] == "selector-combinator")
     assert selector["control_behavior"]["operation"] == "count"
     assert selector["control_behavior"]["count_signal"]["name"] == "signal-C"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'Signal chosen = select_min(items)["iron-plate"];',
+        'Bundle lowest = select_min(items);\nSignal chosen = lowest["iron-plate"];',
+        'Signal recipe = ("iron-plate", 1);\n'
+        'Bundle lowest = select_min(items);\nSignal chosen = lowest[recipe.type];',
+        'Bundle lowest = select_min(items);\n'
+        'Bundle doubled = lowest * 2;\nSignal chosen = doubled["iron-plate"];',
+        'Bundle lowest = select_min(items);\n'
+        'Bundle filtered = (lowest > 0) : lowest;\n'
+        'Signal chosen = filtered["iron-plate"];',
+        'Bundle lowest = select_min(items);\n'
+        'Bundle combined = { lowest, ("signal-A", 1) };\n'
+        'Signal chosen = combined["iron-plate"];',
+    ],
+)
+def test_dynamic_selector_output_can_be_indexed_by_known_signal(source):
+    blueprint = compile_selector(ITEMS + "\n" + source + "\nSignal used = chosen + 1;")
+    assert any(e["name"] == "selector-combinator" for e in blueprint["entities"])
+    assert any(e["name"] == "arithmetic-combinator" for e in blueprint["entities"])
+
+
+def test_static_bundle_still_rejects_missing_signal():
+    diagnostics = ProgramDiagnostics()
+    ast = DSLParser().parse(
+        'Bundle fixed = { ("iron-plate", 5) };'
+        'Signal missing = fixed["copper-plate"];',
+        "<static-bundle-test>",
+    )
+    SemanticAnalyzer(diagnostics).visit(ast)
+    assert diagnostics.error_count() > 0
