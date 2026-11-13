@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from dsl_compiler.src.ast.base import ASTNode
-from dsl_compiler.src.common.selector_builtins import SELECTOR_BUILTINS
 from dsl_compiler.src.ast.expressions import (
     BinaryOp,
     BundleAllExpr,
@@ -34,6 +33,7 @@ from dsl_compiler.src.ast.statements import (
     Expr,
     ReturnStmt,
 )
+from dsl_compiler.src.common.selector_builtins import SELECTOR_BUILTINS
 from dsl_compiler.src.ir.builder import (
     BundleRef,
     IRConst,
@@ -1554,9 +1554,7 @@ class ExpressionLowerer:
 
         entity_id = self.ir_builder.next_id("selector")
         # None means unconstrained position; the standard layout engine places it.
-        self.ir_builder.place_entity(
-            entity_id, "selector-combinator", None, None, props, expr
-        )
+        self.ir_builder.place_entity(entity_id, "selector-combinator", None, None, props, expr)
         self.ir_builder.add_operation(IREntityPropWrite(entity_id, "input", source))
         output_id = self.ir_builder.next_id("selector_output")
         self.ir_builder.add_operation(IREntityOutput(output_id, entity_id, expr))
