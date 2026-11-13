@@ -769,11 +769,20 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             # Bundle OP Bundle: element-wise operation using each-each
             if isinstance(right_type, BundleValue):
                 combined_types = left_type.signal_types | right_type.signal_types
-                return BundleValue(signal_types=combined_types)
+                bundle_class = (
+                    DynamicBundleValue
+                    if isinstance(left_type, DynamicBundleValue)
+                    or isinstance(right_type, DynamicBundleValue)
+                    else BundleValue
+                )
+                return bundle_class(signal_types=combined_types)
 
             # Bundle OP scalar: result is a Bundle with same signal types
             if isinstance(right_type, (SignalValue, IntValue)):
-                return BundleValue(signal_types=left_type.signal_types.copy())
+                bundle_class = (
+                    DynamicBundleValue if isinstance(left_type, DynamicBundleValue) else BundleValue
+                )
+                return bundle_class(signal_types=left_type.signal_types.copy())
 
             self.diagnostics.error(
                 f"Bundle operations require Signal or int operand on right side, got {type(right_type).__name__}",
@@ -939,7 +948,12 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         self.get_expr_type(expr.output_value)
 
         # Result is always a bundle - either copy or constant output per matching signal
-        return BundleValue(signal_types=source_bundle_type.signal_types.copy())
+        bundle_class = (
+            DynamicBundleValue
+            if isinstance(source_bundle_type, DynamicBundleValue)
+            else BundleValue
+        )
+        return bundle_class(signal_types=source_bundle_type.signal_types.copy())
 
     def _is_comparison_expr(self, expr: Expr) -> bool:
         """Check if expression is a valid decider condition.
@@ -1708,6 +1722,7 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
         Elements can be signal literals, signal variables, or other bundles.
         """
         signal_types: set[str] = set()
+        is_dynamic = False
         seen_signals: dict[str, Expr] = {}  # Track where each signal was first seen
 
         for element in expr.elements:
@@ -1727,7 +1742,8 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                         signal_types.add(signal_name)
 
             elif isinstance(element_type, BundleValue):
-                # Flatten nested bundle
+                # Flatten nested bundle, preserving runtime-determined members.
+                is_dynamic |= isinstance(element_type, DynamicBundleValue)
                 for nested_signal in element_type.signal_types:
                     if nested_signal in seen_signals:
                         self.diagnostics.error(
@@ -1755,7 +1771,8 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
                     node=element,
                 )
 
-        return BundleValue(signal_types=signal_types)
+        bundle_class = DynamicBundleValue if is_dynamic else BundleValue
+        return bundle_class(signal_types=signal_types)
 
     def _infer_bundle_select_type(self, expr: BundleSelectExpr) -> SignalValue:
         """Infer type for bundle selection bundle['signal-type'].
@@ -1772,25 +1789,25 @@ You cannot mix 'when=' with 'set=/reset=' arguments.
             )
             return SignalValue(signal_type=self.allocate_implicit_type())
 
-        # For dynamic bundles (e.g., entity.output), we can't validate signal types
-        # at compile time - they're determined at runtime
-        if isinstance(bundle_type, DynamicBundleValue):
-            signal_type_info = self.make_signal_type_info(expr.signal_type)
-            return SignalValue(signal_type=signal_type_info)
+        signal_name = self.resolve_signal_type_access(expr.signal_type, expr)
+        if signal_name is None:
+            return SignalValue(signal_type=self.allocate_implicit_type())
 
-        if expr.signal_type not in bundle_type.signal_types:
+        # Dynamic Bundles can contain any signal at runtime; static Bundles
+        # retain strict membership validation.
+        if not isinstance(bundle_type, DynamicBundleValue) and (
+            signal_name not in bundle_type.signal_types
+        ):
             available = ", ".join(sorted(bundle_type.signal_types)) or "(empty bundle)"
             self.diagnostics.error(
-                f"Signal type '{expr.signal_type}' not found in bundle. "
+                f"Signal type '{signal_name}' not found in bundle. "
                 f"Available types: {available}",
                 stage="semantic",
                 node=expr,
             )
             return SignalValue(signal_type=self.allocate_implicit_type())
 
-        # Valid selection - return SignalValue with the selected type
-        signal_type_info = self.make_signal_type_info(expr.signal_type)
-        return SignalValue(signal_type=signal_type_info)
+        return SignalValue(signal_type=self.make_signal_type_info(signal_name))
 
     def _infer_bundle_any_type(self, expr: BundleAnyExpr) -> SignalValue:
         """Infer type for any(bundle) expression.
